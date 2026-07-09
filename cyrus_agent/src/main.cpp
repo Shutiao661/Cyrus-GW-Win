@@ -1,0 +1,89 @@
+// ============================================================================
+// main.cpp - Cyrus Agent 入口点
+// ============================================================================
+// 命令行: cyrus_agent.exe [--port N] [--config file]
+//   默认端口: 9999
+//
+// Agent 生命周期:
+//   1. 解析命令行参数
+//   2. 初始化 WSA
+//   3. 创建 AgentServer
+//   4. 注册请求处理器 (Echo + Chat)
+//   5. 启动服务器
+//   6. 等待 Ctrl+C 关闭信号
+//   7. 优雅退出
+// ============================================================================
+
+#include "cyrus/agent/agent_server.hpp"
+#include "cyrus/agent/echo_handler.hpp"
+#include "cyrus/agent/chat_handler.hpp"
+#include "cyrus/logger.hpp"
+
+#include <string>
+#include <cstring>
+
+using namespace cyrus;
+using namespace cyrus::agent;
+
+int main(int argc, char* argv[]) {
+    // ========================================================================
+    // 第 1 步: 解析命令行参数
+    // ========================================================================
+    uint16_t port = 9999;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+            port = static_cast<uint16_t>(std::atoi(argv[++i]));
+        }
+    }
+
+    // ========================================================================
+    // 第 2 步: 配置日志
+    // ========================================================================
+    Logger::instance().set_level(LogLevel::INFO);
+
+    LOG_INFO("============================================");
+    LOG_INFO("  Cyrus Agent v1.0.0");
+    LOG_INFO("  Platform: Windows");
+    LOG_INFO("============================================");
+
+    // ========================================================================
+    // 第 3 步: 初始化 WSA
+    // ========================================================================
+    WSAContext wsa;
+
+    // ========================================================================
+    // 第 4 步: 注册信号处理器
+    // ========================================================================
+    register_signal_handler([]() {
+        LOG_INFO("Agent received shutdown signal");
+    });
+
+    // ========================================================================
+    // 第 5 步: 创建 Agent 服务器
+    // ========================================================================
+    AgentServer server(port);
+
+    // 注册请求处理器
+    server.register_handler("/echo", std::make_unique<EchoHandler>());
+    server.register_handler("/v1/chat/completions", std::make_unique<ChatHandler>());
+    server.register_handler("/v1/chat", std::make_unique<ChatHandler>());
+
+    // ========================================================================
+    // 第 6 步: 启动服务器
+    // ========================================================================
+    if (!server.start()) {
+        LOG_FATAL("Failed to start agent server. Exiting.");
+        return 1;
+    }
+
+    LOG_INFO("Agent ready. Port: {}, Handlers: echo, chat", port);
+
+    // ========================================================================
+    // 第 7 步: 等待关闭信号
+    // ========================================================================
+    server.wait_for_shutdown();
+
+    LOG_INFO("Cyrus Agent stopped. Goodbye!");
+    return 0;
+}

@@ -1,0 +1,31 @@
+# Build output
+out/
+build/
+.vs/
+
+# IDE files
+*.user
+*.suo
+*.slnx
+
+# CMake generated
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.cmake
+!CMakePresets.json
+!cmake/*.cmake
+
+# Object files / libraries
+*.obj
+*.lib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# Temporary files
+*.tmp
+*.log
+_temp*

@@ -1,0 +1,47 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "debug-x64",
+            "displayName": "Debug x64 (Ninja)",
+            "description": "Ninja 生成器, x64 架构, Debug 模式",
+            "generator": "Ninja",
+            "architecture": "x64",
+            "toolset": "v180",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "BUILD_TESTS": true,
+                "BUILD_BENCHMARKS": true,
+                "USE_ASAN": false
+            }
+        },
+        {
+            "name": "release-x64",
+            "displayName": "Release x64 (Ninja)",
+            "description": "Ninja 生成器, x64 架构, Release 优化模式",
+            "generator": "Ninja",
+            "architecture": "x64",
+            "toolset": "v180",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "BUILD_TESTS": false,
+                "BUILD_BENCHMARKS": true,
+                "USE_ASAN": false
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug-x64"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release-x64"
+        }
+    ]
+}

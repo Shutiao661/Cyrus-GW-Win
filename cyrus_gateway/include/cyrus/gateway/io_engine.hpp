@@ -1,0 +1,137 @@
+// ============================================================================
+// io_engine.hpp - 异步 I/O 引擎抽象接口
+// ============================================================================
+// 定义跨平台的异步 I/O 操作接口。
+// 设计哲学: io_uring (Linux) 和 IOCP (Windows) 都是 "投递操作 → 接收完成通知"
+// 的模型, 因此可以统一抽象为:
+//   1. post_xxx()  → 投递异步操作 (非阻塞, 立即返回)
+//   2. wait_completions() → 等待完成事件 (阻塞直到有事件到达)
+//   3. 完成回调 → 根据 IOContext 中的操作类型分发处理
+//
+// 具体实现:
+//   - IOEngineIocp  (Windows):  使用 IOCP (I/O Completion Port)
+//   - IOEngineUring (Linux):     使用 io_uring
+//   - IOEngineFake  (测试):      用于单元测试, 模拟 I/O 行为
+// ============================================================================
+
+#pragma once
+
+#include "cyrus/types.hpp"
+
+#include <functional>
+#include <memory>
+
+namespace cyrus {
+namespace gateway {
+
+// ============================================================================
+// IOOperation - 异步操作类型
+// ============================================================================
+enum class IOOperation : uint8_t {
+    NONE   = 0,    // 未初始化
+    ACCEPT = 1,    // 接受新连接 (仅监听 socket)
+    RECV   = 2,    // 接收数据
+    SEND   = 3,    // 发送数据
+    CLOSE  = 4,    // 关闭连接
+};
+
+// ============================================================================
+// IOContext - 异步操作上下文
+// ============================================================================
+// 每个异步操作对应一个 IOContext。
+// 投递操作时填充此结构 → 完成时 I/O 引擎填充结果字段。
+//
+// 生命周期: IOContext 必须在操作进行期间保持有效。
+// 通常从对象池分配, 完成处理后归还。
+struct IOContext {
+    IOOperation  op = IOOperation::NONE;  // 操作类型
+    socket_t     fd = INVALID_SOCKET_VAL; // 操作的套接字
+    uint8_t*     buffer = nullptr;        // 数据缓冲区 (RECV: 接收缓冲区, SEND: 发送缓冲区)
+    size_t       buffer_len = 0;          // 缓冲区大小
+    size_t       bytes_transferred = 0;   // 完成时: 实际传输的字节数
+    int          error = 0;               // 完成时: 0=成功, 非0=错误码
+    void*        user_data = nullptr;      // 用户数据 (通常指向 Connection 对象)
+
+    // 重置上下文 (归还池前清空)
+    void reset() {
+        op = IOOperation::NONE;
+        fd = INVALID_SOCKET_VAL;
+        buffer = nullptr;
+        buffer_len = 0;
+        bytes_transferred = 0;
+        error = 0;
+        user_data = nullptr;
+    }
+};
+
+// ============================================================================
+// IOEngine - 异步 I/O 引擎抽象基类
+// ============================================================================
+class IOEngine {
+public:
+    virtual ~IOEngine() = default;
+
+    // --- 生命周期 ---
+
+    // 初始化引擎 (创建 IOCP 句柄 / io_uring 队列等)
+    // 返回 true 表示成功
+    virtual bool init() = 0;
+
+    // 关闭引擎 (释放资源, 取消所有挂起的操作)
+    virtual void shutdown() = 0;
+
+    // --- Socket 注册 ---
+
+    // 将 socket 注册到引擎 (关联到 IOCP / 注册到 io_uring)
+    // fd: 套接字
+    // user_data: 与此 socket 关联的用户数据 (通常是 Connection*)
+    virtual bool register_socket(socket_t fd, void* user_data) = 0;
+
+    // --- 投递异步操作 ---
+
+    // 投递异步 Accept 操作
+    // listen_fd: 监听套接字
+    // ctx: 操作上下文 (ctx->fd 将被设置为新接受的 socket)
+    // 返回 0 成功, -1 失败
+    virtual int post_accept(socket_t listen_fd, IOContext* ctx) = 0;
+
+    // 投递异步 Recv 操作
+    // fd: 已连接的套接字
+    // ctx: 操作上下文 (ctx->buffer 必须已填充缓冲区指针)
+    // 返回 0 成功, -1 失败
+    virtual int post_recv(socket_t fd, IOContext* ctx) = 0;
+
+    // 投递异步 Send 操作
+    // fd: 已连接的套接字
+    // ctx: 操作上下文 (ctx->buffer 指向要发送的数据, ctx->bytes_transferred = 待发送长度)
+    // 返回 0 成功, -1 失败
+    virtual int post_send(socket_t fd, IOContext* ctx) = 0;
+
+    // --- 等待完成事件 ---
+
+    // 等待完成事件 (阻塞)
+    // contexts: 输出数组, 引擎填充完成事件的 IOContext 指针
+    // max_events: 最多返回的事件数
+    // timeout_ms: 超时 (毫秒), -1 = 无限等待
+    // 返回实际完成的事件数 (0 = 超时)
+    virtual int wait_completions(IOContext** contexts, int max_events,
+                                  int timeout_ms) = 0;
+
+    // --- 唤醒 (用于优雅关闭) ---
+
+    // 向完成队列投递一个特殊的 "wakeup" 事件
+    // 用于在 shutdown 时唤醒阻塞在 wait_completions() 上的工作线程
+    virtual void post_wakeup() = 0;
+};
+
+// ============================================================================
+// 引擎工厂函数
+// ============================================================================
+
+// 根据当前平台创建最合适的 I/O 引擎
+// Windows → IOEngineIocp
+// Linux   → IOEngineUring (如果可用, 否则 fallback)
+std::unique_ptr<IOEngine> create_io_engine();
+
+} // namespace gateway
+} // namespace cyrus
