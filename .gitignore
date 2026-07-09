@@ -29,3 +29,8 @@ cmake_install.cmake
 *.tmp
 *.log
 _temp*
+
+# Office temp files
+~
+*.doc
+*.docx
